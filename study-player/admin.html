@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Study &amp; Guard Manager</title>
+<style>
+:root{--bg:#0f1115;--panel:#171a21;--panel2:#1d212a;--line:#2a2f3a;--tx:#e8eaf0;--mut:#8b93a5;--acc:#7c5cff;--ok:#3fb27f;--warn:#e0a030;--bad:#e5534b}
+*{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--tx);font-family:Segoe UI,system-ui,Roboto,sans-serif;font-size:14px}
+#top{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5}
+#top h1{font-size:16px;margin:0;font-weight:600;flex:1}
+#flag{font-size:12px;color:var(--warn);display:none}
+button{font:inherit;color:var(--tx);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 14px;cursor:pointer}
+button:hover{border-color:#444b5a}button:disabled{opacity:.45;cursor:default}
+button.pri{background:var(--acc);border-color:var(--acc);color:#fff}button.dng{color:var(--bad)}button.sm{padding:3px 9px;font-size:12px}
+#wrap{display:flex;height:calc(100% - 55px)}
+#nav{width:190px;border-right:1px solid var(--line);padding:12px 8px;background:var(--panel)}
+#nav button{display:block;width:100%;text-align:left;border:0;background:none;border-radius:8px;padding:10px 12px;margin-bottom:2px;color:var(--mut)}
+#nav button.on{background:var(--panel2);color:var(--tx)}
+#main{flex:1;overflow-y:auto;padding:22px 28px 60px}
+h2{font-size:18px;margin:0 0 4px}.sub{color:var(--mut);margin:0 0 18px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+.card h3{font-size:14px;margin:0 0 10px;display:flex;gap:8px;align-items:center}
+.row{display:flex;gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+input[type=text],input[type=number],select{background:var(--bg);border:1px solid var(--line);color:var(--tx);border-radius:8px;padding:7px 10px;font:inherit;min-width:0}
+input[type=text]{flex:1;min-width:160px}input[type=number]{width:90px}
+input:focus,select:focus{outline:1px solid var(--acc)}
+.tag{font-size:11px;padding:2px 8px;border-radius:20px;border:1px solid var(--line);color:var(--mut)}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.dom{display:flex;align-items:center;gap:10px;padding:6px 4px;border-bottom:1px solid var(--line)}
+.dom:last-child{border-bottom:0}.dom .d{flex:1;font-family:Consolas,monospace}.dom.off .d{color:var(--mut);text-decoration:line-through}
+.chips{display:flex;gap:6px;flex-wrap:wrap}.chip{font-family:Consolas,monospace;font-size:12px;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:2px 8px}
+pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;color:var(--mut);font-size:12px;white-space:pre-wrap;margin:8px 0 0}
+label.sw{display:flex;align-items:center;gap:8px;cursor:pointer}
+#toast{position:fixed;right:20px;bottom:20px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 16px;display:none;max-width:420px;z-index:9}
+.hint{color:var(--mut);font-size:12px;margin:4px 0 10px}
+</style>
+</head>
+<body>
+<div id="top"><h1>Study &amp; Guard Manager</h1><span id="flag">Unsaved changes</span>
+<button id="save" class="pri" disabled>Save</button><button id="apply">Apply to Windows (admin)</button></div>
+<div id="wrap"><div id="nav"></div><div id="main"></div></div>
+<div id="toast"></div>
+<script>
+(function(){
+var TABS=[["status","Overview"],["domains","Blocked domains"],["redirects","Redirects"],["study","Study allowlist"],["settings","Settings"]];
+var cfg=null,status=null,tab="status",dirty=false,saving=false;
+var $=function(i){return document.getElementById(i);};
+function api(m,u,b){return fetch(u,{method:m,headers:{"X-Manager":"1","Content-Type":"application/json"},body:b?JSON.stringify(b):undefined}).then(function(r){return r.text().then(function(t){var j={};try{j=JSON.parse(t);}catch(e){}if(!r.ok)throw new Error(j.error||t||("HTTP "+r.status));return j;});});}
+function h(tag,props){var e=document.createElement(tag);props=props||{};for(var k in props){if(k==="class")e.className=props[k];else if(k.indexOf("on")===0)e[k]=props[k];else if(k==="value"||k==="checked"||k==="disabled")e[k]=props[k];else e.setAttribute(k,props[k]);}
+  for(var i=2;i<arguments.length;i++){(function add(c){if(c==null||c===false)return;if(Array.isArray(c))return c.forEach(add);e.appendChild(c.nodeType?c:document.createTextNode(String(c)));})(arguments[i]);}return e;}
+function toast(msg,ms){var t=$("toast");t.textContent=msg;t.style.display="block";clearTimeout(toast.t);toast.t=setTimeout(function(){t.style.display="none";},ms||3500);}
+function touch(){dirty=true;$("flag").style.display="inline";$("save").disabled=false;}
+function clean(){dirty=false;$("flag").style.display="none";$("save").disabled=true;}
+function listId(s){s=(s||"").trim();var m=s.match(/[?&]list=([A-Za-z0-9_-]+)/);return m?m[1]:s;}
+function chanId(s){var m=(s||"").match(/UC[A-Za-z0-9_-]{22}/);return m?m[0]:"";}
+function cleanDomain(s){return (s||"").trim().toLowerCase().replace(/^https?:\/\//,"").replace(/[\/?#].*$/,"").replace(/:\d+$/,"");}
+function splitList(s){return (s||"").split(/[,\s]+/).map(cleanDomain).filter(Boolean);}
+
+function drawNav(){var n=$("nav");n.innerHTML="";TABS.forEach(function(t){n.appendChild(h("button",{class:tab===t[0]?"on":"",onclick:function(){tab=t[0];draw();}},t[1]));});}
+function draw(){drawNav();var m=$("main");m.innerHTML="";({status:vStatus,domains:vDomains,redirects:vRedirects,study:vStudy,settings:vSettings})[tab](m);}
+
+/* ---------- Overview ---------- */
+function ack(){try{return localStorage.getItem("extAck")||"";}catch(e){return "";}}
+function vStatus(m){
+  m.appendChild(h("h2",0,"Overview"));m.appendChild(h("p",{class:"sub"},"Everything you changed here is saved to config.json. Windows-level changes (hosts file, guard) need your admin approval."));
+  if(!status){m.appendChild(h("p",0,"Loading status..."));return;}
+  var hs=status.hosts,g=status.guard,ex=status.extension;
+  var hostsCard=h("div",{class:"card"},h("h3",0,"Hosts file ",h("span",{class:"tag "+(hs.inSync?"ok":"warn")},hs.known?(hs.inSync?"in sync":"changes pending"):"unreadable")));
+  if(hs.known&&!hs.inSync){
+    if(!hs.blockPresent)hostsCard.appendChild(h("p",0,"The HostsGuard block is not in the hosts file yet."));
+    if(hs.toAdd.length)hostsCard.appendChild(h("div",0,h("div",{class:"hint"},"Will be blocked after Apply:"),h("div",{class:"chips"},hs.toAdd.map(function(d){return h("span",{class:"chip"},d);}))));
+    if(hs.toRemove.length)hostsCard.appendChild(h("div",0,h("div",{class:"hint"},"Will be unblocked after Apply:"),h("div",{class:"chips"},hs.toRemove.map(function(d){return h("span",{class:"chip"},d);}))));
+    hostsCard.appendChild(h("div",{class:"row",style:"margin-top:12px"},h("button",{class:"pri",onclick:doApply},"Apply to Windows (admin)")));
+  }else if(hs.known){hostsCard.appendChild(h("p",{class:"hint"},"The hosts file matches your blocked-domains list."));}
+  m.appendChild(hostsCard);
+  var gOk=g.known&&g.intervalMinutes===g.wantedMinutes;
+  var gc=h("div",{class:"card"},h("h3",0,"Guard ",h("span",{class:"tag "+(gOk?"ok":"warn")},g.known?(gOk?"active":"interval differs"):"status needs admin")));
+  gc.appendChild(h("p",{class:"hint"},"Configured: restore the hosts file every "+g.wantedMinutes+" min."+(g.known&&g.intervalMinutes!=null?" Registered in Windows: "+g.intervalMinutes+" min.":"")+(g.known&&!gOk?" Click Apply to update it.":"")));
+  if(g.lastRestores.length)gc.appendChild(h("pre",0,"Recent restores:\n"+g.lastRestores.join("\n")));
+  m.appendChild(gc);
+  var changed=ex.version!==ack();
+  var ec=h("div",{class:"card"},h("h3",0,"Browser extension ",h("span",{class:"tag "+(changed?"warn":"ok")},"v"+ex.version)));
+  ec.appendChild(h("p",{class:"hint"},"Folder: "+ex.folder));
+  if(changed){ec.appendChild(h("p",0,"The rules changed since you last confirmed. In Brave open the Extensions page and press Reload on 'Distraction Redirects'."));
+    ec.appendChild(h("div",{class:"row"},h("button",{onclick:function(){try{navigator.clipboard.writeText("brave://extensions");}catch(e){}toast("Copied brave://extensions - paste it in a tab");}},"Copy extensions address"),
+      h("button",{class:"pri",onclick:function(){try{localStorage.setItem("extAck",ex.version);}catch(e){}draw();}},"I reloaded it")));}
+  else ec.appendChild(h("p",{class:"hint"},"Reloaded and up to date."));
+  m.appendChild(ec);
+  m.appendChild(h("div",{class:"card"},h("h3",0,"Study player ",h("span",{class:"tag ok"},"running")),h("p",{class:"hint"},"Serving study channels at http://127.0.0.1:8765. Changes to the study allowlist apply instantly; the extension needs a reload only when links are added or removed.")));
+}
+
+/* ---------- Blocked domains ---------- */
+function groups(){var g=[];cfg.blockedDomains.forEach(function(d){if(g.indexOf(d.group)<0)g.push(d.group);});return g;}
+function vDomains(m){
+  m.appendChild(h("h2",0,"Blocked domains"));m.appendChild(h("p",{class:"sub"},"The hosts file has no wildcards, so list every subdomain you want blocked. Untick a domain to unblock it; it only takes effect after Apply."));
+  var add=h("div",{class:"card"},h("h3",0,"Add a domain"));
+  var di=h("input",{type:"text",placeholder:"example.com"}),gi=h("input",{type:"text",placeholder:"Group (e.g. Social)",list:"gl",style:"max-width:200px"});
+  var gl=h("datalist",{id:"gl"},groups().map(function(x){return h("option",{value:x});}));
+  var www=h("input",{type:"checkbox",checked:true});
+  add.appendChild(h("div",{class:"row"},di,gi,gl,h("label",{class:"sw"},www,"also add www."),h("button",{class:"pri",onclick:function(){
+    var d=cleanDomain(di.value);if(!d){toast("Type a domain");return;}
+    var grp=gi.value.trim()||"Other",list=[d];if(www.checked&&d.indexOf("www.")!==0&&d.split(".").length===2)list.push("www."+d);
+    list.forEach(function(x){if(!cfg.blockedDomains.some(function(y){return y.domain===x;}))cfg.blockedDomains.push({domain:x,group:grp,enabled:true});});
+    touch();draw();}},"Add")));
+  m.appendChild(add);
+  groups().forEach(function(g){
+    var items=cfg.blockedDomains.filter(function(d){return d.group===g;});
+    var c=h("div",{class:"card"},h("h3",0,g," ",h("span",{class:"tag"},items.filter(function(d){return d.enabled;}).length+" / "+items.length+" blocked")));
+    items.forEach(function(d){
+      var cb=h("input",{type:"checkbox",checked:d.enabled,onchange:function(){d.enabled=cb.checked;touch();draw();}});
+      c.appendChild(h("div",{class:"dom"+(d.enabled?"":" off")},cb,h("span",{class:"d"},d.domain),
+        h("button",{class:"sm dng",onclick:function(){cfg.blockedDomains=cfg.blockedDomains.filter(function(x){return x!==d;});touch();draw();}},"Remove")));
+    });
+    m.appendChild(c);
+  });
+}
+
+/* ---------- Redirects ---------- */
+function vRedirects(m){
+  m.appendChild(h("h2",0,"Redirects"));m.appendChild(h("p",{class:"sub"},"When you open one of these sites in the browser, the extension sends you to the target instead. Works on top of the hosts block."));
+  cfg.redirects.forEach(function(r){
+    var c=h("div",{class:"card"});
+    var en=h("input",{type:"checkbox",checked:r.enabled,onchange:function(){r.enabled=en.checked;touch();}});
+    c.appendChild(h("div",{class:"row"},h("label",{class:"sw"},en),h("input",{type:"text",value:r.name,oninput:function(e){r.name=e.target.value;touch();}}),
+      h("button",{class:"sm dng",onclick:function(){if(confirm("Remove this redirect?")){cfg.redirects=cfg.redirects.filter(function(x){return x!==r;});touch();draw();}}},"Remove")));
+    c.appendChild(h("div",{class:"hint"},"Domains (comma separated, subdomains included automatically)"));
+    c.appendChild(h("div",{class:"row"},h("input",{type:"text",value:r.domains.join(", "),onchange:function(e){r.domains=splitList(e.target.value);touch();}})));
+    c.appendChild(h("div",{class:"hint"},"Send me to"));
+    c.appendChild(h("div",{class:"row"},h("input",{type:"text",value:r.target,onchange:function(e){r.target=e.target.value.trim();touch();}})));
+    m.appendChild(c);
+  });
+  m.appendChild(h("button",{class:"pri",onclick:function(){cfg.redirects.push({id:"r"+Date.now(),name:"New redirect",domains:[],target:"https://",enabled:true});touch();draw();}},"Add redirect"));
+}
+
+/* ---------- Study ---------- */
+function vStudy(m){
+  var S=cfg.study;
+  m.appendChild(h("h2",0,"Study allowlist"));m.appendChild(h("p",{class:"sub"},"YouTube stays blocked, except these. Their links open in the local study player (channel page, playlists, watch page)."));
+  var en=h("input",{type:"checkbox",checked:S.enabled,onchange:function(){S.enabled=en.checked;touch();}});
+  var ex=h("input",{type:"text",value:S.embedExemptSites.join(", "),onchange:function(e){S.embedExemptSites=splitList(e.target.value);touch();}});
+  m.appendChild(h("div",{class:"card"},h("div",{class:"row"},h("label",{class:"sw"},en,"Study player enabled")),
+    h("div",{class:"hint"},"Sites allowed to embed YouTube videos themselves (everywhere else embeds are blocked)"),h("div",{class:"row"},ex)));
+
+  /* channels */
+  m.appendChild(h("h3",0,"Channels"));
+  S.channels.forEach(function(ch){
+    var c=h("div",{class:"card"});
+    c.appendChild(h("div",{class:"row"},h("input",{type:"text",value:ch.name,placeholder:"Channel name",oninput:function(e){ch.name=e.target.value;touch();}}),
+      h("input",{type:"text",value:ch.handle||"",placeholder:"@handle",style:"max-width:200px",onchange:function(e){var v=e.target.value.trim();ch.handle=v&&v[0]!=="@"?"@"+v:v;touch();}}),
+      h("button",{class:"sm dng",onclick:function(){if(confirm("Remove channel "+ch.name+" and its courses?")){S.channels=S.channels.filter(function(x){return x!==ch;});touch();draw();}}},"Remove")));
+    c.appendChild(h("div",{class:"hint"},"Channel ID: "+ch.channelId));
+    c.appendChild(h("div",{class:"hint"},"Courses (playlists shown in the channel's Playlists tab)"));
+    ch.courses.forEach(function(p){
+      c.appendChild(h("div",{class:"dom"},h("input",{type:"text",value:p.title,oninput:function(e){p.title=e.target.value;touch();}}),h("span",{class:"chip"},p.id),
+        h("button",{class:"sm dng",onclick:function(){ch.courses=ch.courses.filter(function(x){return x!==p;});touch();draw();}},"Remove")));
+    });
+    var ti=h("input",{type:"text",placeholder:"Course title (e.g. Learn Reactjs)"}),li=h("input",{type:"text",placeholder:"Paste the playlist link or ID"});
+    c.appendChild(h("div",{class:"row",style:"margin-top:8px"},ti,li,h("button",{onclick:function(){
+      var id=listId(li.value);if(!id){toast("Paste the playlist link");return;}
+      if(ch.courses.some(function(x){return x.id===id;})){toast("Already added");return;}
+      ch.courses.push({id:id,title:ti.value.trim()||"Playlist "+id.slice(2,8)});touch();draw();}},"Add course")));
+    m.appendChild(c);
+  });
+  var ni=h("input",{type:"text",placeholder:"Channel name"}),ci=h("input",{type:"text",placeholder:"Channel link or ID (the one starting with UC...)"}),hi=h("input",{type:"text",placeholder:"@handle (optional)",style:"max-width:200px"});
+  m.appendChild(h("div",{class:"card"},h("h3",0,"Add a channel"),
+    h("div",{class:"hint"},"On the channel page: About > Share channel > Copy channel ID. A link like youtube.com/channel/UC... also works. A @handle alone is not enough, because it can't be resolved offline."),
+    h("div",{class:"row"},ni,ci,hi,h("button",{class:"pri",onclick:function(){
+      var id=chanId(ci.value);if(!id){toast("Need a channel ID starting with UC (24 characters)");return;}
+      if(S.channels.some(function(x){return x.channelId===id;})){toast("Already added");return;}
+      var hd=hi.value.trim();if(hd&&hd[0]!=="@")hd="@"+hd;
+      S.channels.push({channelId:id,name:ni.value.trim()||"Channel",handle:hd,courses:[]});touch();draw();}},"Add channel"))));
+
+  /* playlists */
+  m.appendChild(h("h3",0,"Single playlists"));
+  var pc=h("div",{class:"card"});
+  if(!S.playlists.length)pc.appendChild(h("p",{class:"hint"},"No playlists yet."));
+  S.playlists.forEach(function(p){
+    pc.appendChild(h("div",{class:"dom"},h("input",{type:"text",value:p.title,oninput:function(e){p.title=e.target.value;touch();}}),h("span",{class:"chip"},p.id),
+      h("button",{class:"sm dng",onclick:function(){S.playlists=S.playlists.filter(function(x){return x!==p;});touch();draw();}},"Remove")));
+  });
+  var pt=h("input",{type:"text",placeholder:"Title"}),pl=h("input",{type:"text",placeholder:"Paste the playlist link or ID"});
+  pc.appendChild(h("div",{class:"row",style:"margin-top:8px"},pt,pl,h("button",{class:"pri",onclick:function(){
+    var id=listId(pl.value);if(!id){toast("Paste the playlist link");return;}
+    if(S.playlists.some(function(x){return x.id===id;})){toast("Already added");return;}
+    S.playlists.push({id:id,title:pt.value.trim()||"Playlist "+id.slice(2,8)});touch();draw();}},"Add playlist")));
+  m.appendChild(pc);
+}
+
+/* ---------- Settings ---------- */
+function vSettings(m){
+  m.appendChild(h("h2",0,"Settings"));m.appendChild(h("p",{class:"sub"},"Guard behaviour. Applied to Windows when you press Apply."));
+  var iv=h("input",{type:"number",min:"1",max:"1440",value:cfg.guard.intervalMinutes,onchange:function(e){var n=parseInt(e.target.value,10);if(n>=1&&n<=1440){cfg.guard.intervalMinutes=n;touch();}else{toast("Use 1 to 1440 minutes");e.target.value=cfg.guard.intervalMinutes;}}});
+  m.appendChild(h("div",{class:"card"},h("h3",0,"Guard check interval"),h("div",{class:"row"},"Restore the hosts file every",iv,"minutes"),
+    h("p",{class:"hint"},"The guard compares the hosts file with the saved baseline and restores it if it changed. Edits made here only reach the hosts file through Apply, which asks Windows for administrator approval.")));
+  var nm=h("input",{type:"text",value:cfg.extension.name,onchange:function(e){cfg.extension.name=e.target.value.trim()||"Distraction Redirects";touch();}});
+  m.appendChild(h("div",{class:"card"},h("h3",0,"Extension name"),h("div",{class:"row"},nm)));
+}
+
+/* ---------- actions ---------- */
+function load(){return Promise.all([api("GET","/api/config"),api("GET","/api/status")]).then(function(r){cfg=r[0];status=r[1];draw();}).catch(function(e){$("main").textContent="Could not load: "+e.message;});}
+function refreshStatus(){return api("GET","/api/status").then(function(s){status=s;if(tab==="status")draw();});}
+function save(){
+  if(saving||!dirty)return Promise.resolve(true);saving=true;$("save").disabled=true;
+  return api("PUT","/api/config",cfg).then(function(r){clean();toast("Saved. "+r.rules+" browser rules generated (extension v"+r.version+").");return refreshStatus().then(function(){return true;});})
+   .catch(function(e){touch();toast("Not saved: "+e.message,6000);return false;}).then(function(ok){saving=false;return ok;});
+}
+function doApply(){
+  save().then(function(ok){if(!ok)return;
+    if(!confirm("Windows will now ask for administrator approval.\n\nThis rewrites the hosts block, resets the guard interval to "+cfg.guard.intervalMinutes+" min, and updates the extension copy."))return;
+    api("POST","/api/apply").then(function(){toast("Waiting for the Windows approval prompt...",8000);var n=0,iv=setInterval(function(){refreshStatus().then(function(){if((status.hosts.inSync&&status.guard.intervalMinutes===status.guard.wantedMinutes)||++n>25)clearInterval(iv);});},3000);})
+     .catch(function(e){toast("Could not start: "+e.message,6000);});});
+}
+$("save").onclick=save;$("apply").onclick=doApply;
+window.addEventListener("beforeunload",function(e){if(dirty){e.preventDefault();e.returnValue="";}});
+load();setInterval(function(){if(!dirty&&tab==="status")refreshStatus();},10000);
+})();
+</script>
+</body>
+</html>

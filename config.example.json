@@ -1,0 +1,25 @@
+{
+  "guard": { "intervalMinutes": 5 },
+  "extension": { "name": "Distraction Redirects", "version": 1 },
+  "blockedDomains": [
+    { "domain": "youtube.com", "group": "YouTube", "enabled": true },
+    { "domain": "www.youtube.com", "group": "YouTube", "enabled": true },
+    { "domain": "m.youtube.com", "group": "YouTube", "enabled": true },
+    { "domain": "youtu.be", "group": "YouTube", "enabled": true }
+  ],
+  "redirects": [
+    {
+      "id": "youtube",
+      "name": "YouTube to SoundCloud",
+      "domains": ["youtube.com", "youtu.be"],
+      "target": "https://soundcloud.com/",
+      "enabled": true
+    }
+  ],
+  "study": {
+    "enabled": true,
+    "embedExemptSites": [],
+    "playlists": [],
+    "channels": []
+  }
+}

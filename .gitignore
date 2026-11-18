@@ -1,0 +1,7 @@
+# Personal settings and generated output (rebuilt by `node generate.js` from config.json)
+config.json
+config.json.bak
+blocked-domains.txt
+extension/
+backup-before-gui/
+*.log
